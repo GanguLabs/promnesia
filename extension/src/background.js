@@ -617,6 +617,7 @@ const onMessageCallback = async (msg: any) => { // TODO not sure if should defen
         if (should) {
             const {url: url} = should
             const visits = await allsources.visits(url)
+            const rawText = "abc" // call the api here to search for text from searchbar
             if (visits instanceof Visits) {
                 return visits.toJObject()
             } else {
