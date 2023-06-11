@@ -421,6 +421,9 @@ async function* _bindSidebarData(response: Visits) {
     //
 
     const binder = new Binder(doc, opts)
+
+    binder.makeTchild(cont, `use browser search text to search notes`);
+
     const items = binder.makeChild(cont, 'ul');
     items.id = Ids.VISITS
 
