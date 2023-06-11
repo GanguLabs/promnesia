@@ -17,6 +17,7 @@ TARGETS = [
     'firefox',
 ]
 
+# windows command is different: https://github.com/karlicoss/promnesia/issues/398
 npm = "npm.cmd" if platform == "win32" else "npm"
 
 def main() -> None:
