@@ -1,8 +1,8 @@
 ## AG development tasks or guide
 - [ ] update the extension to send search string from browser to the server
-  - seach for `const searchText = "Extract Search text from searchbar"` in [background.js](./extension/src/background.js)
+  - seach for `const searchText = "Extract Search text from searchbar"` in [[file:extension/src/background.js][background.js]]
 - [ ] create an api route that searches files and returns found results
-  - search for `@app.get("/test")` in [server.py](./src/promnesia/server.py) file for example
+  - search for `@app.get("/test")` in [[file:src/promnesia/server.py][server.py]] file for example
 
 __init__#+OPTIONS: num:nil
 
