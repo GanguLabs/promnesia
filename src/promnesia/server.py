@@ -202,6 +202,11 @@ def search_common(url: str, where: Where) -> VisitsResponse:
         visits=list(map(as_json, vlist)),
     )
 
+@app.get("/test")
+def read_root():
+    f = open("C:/Users/AnweshGangula/Downloads/promnesia/src/promnesia/read_db.py", "r")
+    lines = f.readlines()
+    return {"Hello": "World" + " - read_db.py has " + str(len(lines)) + " lines"}
 
 # TODO hmm, seems that the extension is using post for all requests??
 # perhasp should switch to get for most endpoint
