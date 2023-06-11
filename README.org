@@ -1,4 +1,10 @@
-#+OPTIONS: num:nil
+## AG development tasks or guide
+- [ ] update the extension to send search string from browser to the server
+  - seach for `const searchText = "Extract Search text from searchbar"` in [background.js](./extension/src/background.js)
+- [ ] create an api route that searches files and returns found results
+  - search for `@app.get("/test")` in [server.py](./src/promnesia/server.py) file for example
+
+__init__#+OPTIONS: num:nil
 
 Quick links: [[#motivation][Motivation]] | [[file:doc/GUIDE.org#extension-features][Feature guide]] | [[#demos][*Demos*]] | [[#how-does-it-work][How does it work?]] | [[#install][*Install*]] | [[#try-it-out][Try it out & Setup]] | [[#glossary][Glossary]] | [[file:doc/GUIDE.org#FAQ][FAQ]] | [[#support][Support]] | [[file:doc/TROUBLESHOOTING.org][Troubleshooting guide]] | [[file:doc/DEVELOPMENT.org][Developer's guide]]
 
