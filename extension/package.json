@@ -7,6 +7,7 @@
   "scripts": {
     "test": "jest",
     "build": "webpack --progress --profile",
+    "buildChrome": "npm run build --target=chrome",
     "watch": "webpack --watch --progress",
     "dev": "npm run watch",
     "eslint": "eslint src",

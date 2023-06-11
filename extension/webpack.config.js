@@ -22,7 +22,8 @@ const baseManifest = require('./src/manifest.json');
 const release = env.RELEASE == 'YES' ? true : false;
 const publish = env.PUBLISH == 'YES' ? true : false;
 const dev = !release; // meh. maybe make up my mind?
-const target = env.TARGET; // TODO erm didn't work?? assert(target != null);
+// pass target from npm command like  -   npm run build --target=chrome
+const target = env.TARGET ?? process.env.npm_config_target; // TODO erm didn't work?? assert(target != null);
 
 // see this for up to date info on the differences..
 // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Differences_between_desktop_and_Android#Other_UI_related_API_and_manifest.json_key_differences
