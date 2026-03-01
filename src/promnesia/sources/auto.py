@@ -2,37 +2,50 @@
 - discovers files recursively
 - guesses the format (orgmode/markdown/json/etc) by the extension/MIME type
 - can index most of plaintext files, including source code!
-- autodetects Obsidian vault and adds `obsidian://` app protocol support [[file:../src/promnesia/sources/obsidian.py][promnesia.sources.obsidian]]
-- autodetects Logseq graph and adds `logseq://` app protocol support [[file:../src/promnesia/sources/logseq.py][promnesia.sources.logseq]]
+- autodetects Obsidian vault and adds `obsidian://` app protocol support [[file:../src/promnesia/sources/auto_obsidian.py][promnesia.sources.obsidian]]
+- autodetects Logseq graph and adds `logseq://` app protocol support [[file:../src/promnesia/sources/auto_logseq.py][promnesia.sources.logseq]]
 """
 
+from __future__ import annotations
+
 import csv
-from concurrent.futures import ProcessPoolExecutor as Pool
-from contextlib import nullcontext
-from datetime import datetime
 import itertools
 import json
 import os
-from typing import Optional, Iterable, Union, List, Tuple, NamedTuple, Sequence, Iterator, Iterable, Callable, Any, Dict, Set
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from concurrent.futures import ProcessPoolExecutor as Pool
+from contextlib import nullcontext
 from fnmatch import fnmatch
+from functools import wraps
 from pathlib import Path
-from functools import lru_cache, wraps
-import warnings
+from typing import Any, NamedTuple
 
-import pytz
+from promnesia.common import (
+    Loc,
+    PathIsh,
+    Result,
+    Results,
+    Visit,
+    echain,
+    extract_urls,
+    file_mtime,
+    get_logger,
+    get_tmpdir,
+    logger,
+    mime,
+    traverse,
+    warn_once,
+)
+from promnesia.config import use_cores
 
-from ..common import Visit, Url, PathIsh, get_logger, Loc, get_tmpdir, extract_urls, Extraction, Result, Results, mime, traverse, file_mtime, echain, logger
-from ..config import use_cores
-
-
-from .filetypes import EUrl
-from .auto_obsidian import obsidian_replacer
 from .auto_logseq import logseq_replacer
+from .auto_obsidian import obsidian_replacer
+from .filetypes import Ctx, EUrl
 
 
-def _collect(thing, path: List[str], result: List[EUrl]) -> None:
+def _collect(thing, path: list[str], result: list[EUrl]) -> None:
     if isinstance(thing, str):
-        ctx: Ctx = tuple(path) # type: ignore
+        ctx: Ctx = tuple(path)
         result.extend([EUrl(url=u, ctx=ctx) for u in extract_urls(thing)])
     elif isinstance(thing, list):
         path.append('[]')
@@ -50,14 +63,15 @@ def _collect(thing, path: List[str], result: List[EUrl]) -> None:
 
 
 # TODO mm. okay, I suppose could use kython consuming thingy?..
-def collect_from(thing) -> List[EUrl]:
-    uuu: List[EUrl] = []
-    path: List[str] = []
+def collect_from(thing) -> list[EUrl]:
+    uuu: list[EUrl] = []
+    path: list[str] = []
     _collect(thing, path, uuu)
     return uuu
 
 
 Urls = Iterator[EUrl]
+
 
 def _csv(path: Path) -> Urls:
     # TODO these could also have Loc to be fair..
@@ -76,6 +90,7 @@ def _json(path: Path) -> Urls:
 def _plaintext(path: Path) -> Results:
     from . import shellcmd
     from .plaintext import extract_from_path
+
     yield from shellcmd.index(extract_from_path(path))
 
 
@@ -84,7 +99,8 @@ def _plaintext(path: Path) -> Results:
 def fallback(ex):
     """Falls back to plaintext in case of issues"""
 
-    fallback_active: Dict[Any, bool] = {}
+    fallback_active: dict[Any, bool] = {}
+
     @wraps(ex)
     def wrapped(path: Path):
         nonlocal fallback_active
@@ -98,79 +114,83 @@ def fallback(ex):
             except ModuleNotFoundError as me:
                 logger = get_logger()
                 logger.exception(me)
-                logger.warn('%s: %s not found, falling back to grep! "pip3 install --user %s" for better support!', path, me.name, me.name)
+                logger.warning(
+                    '%s: %s not found, falling back to grep! "pip3 install --user %s" for better support!',
+                    path,
+                    me.name,
+                    me.name,
+                )
                 yield me
                 fallback_active[ex] = True
                 do_fallback = True
         if do_fallback:
             yield from _plaintext(path)
+
     return wrapped
 
 
 @fallback
 def _markdown(path: Path) -> Results:
     from . import markdown
+
     yield from markdown.extract_from_file(path)
 
 
 @fallback
 def _html(path: Path) -> Results:
     from . import html
+
     yield from html.extract_from_file(path)
 
 
 @fallback
 def _org(path: Path) -> Results:
     from . import org
+
     return org.extract_from_file(path)
 
 
-from .filetypes import TYPE2IDX, type2idx, IGNORE, CODE
+from .filetypes import CODE, IGNORE, TYPE2IDX, type2idx
 
-TYPE2IDX.update({
-    'application/json': _json,
-    '.json'           : _json,
-    '.ipynb'          : _json,
-
-    '.csv'           : _csv,
-    'application/csv': _csv,
-
-    '.org'        : _org,
-    '.org_archive': _org,
-
-    '.md'         : _markdown,
-    '.markdown'   : _markdown,
-
-    'text/plain'  : _plaintext,
-    '.txt'        : _plaintext,
-    '.page'       : _plaintext,
-    '.rst'        : _plaintext,
-
-
-    # TODO doesn't work that great; weird stuff like
-    # builtins.ImportError.name|2019-07-10T12:12:35.584510+00:00|names::ImportError::node::names::name::node::fullname
-    # TODO could have stricter url extraction for that; always using http/https?
-    # '.ipynb'      : _json,
-
-    '.html'    : _html,
-    'text/html': _html,
-    'text/xml' : _plaintext,
-
-    'text/x-po': _plaintext, # some translation files
-})
+TYPE2IDX.update(
+    {
+        'application/json': _json,
+        '.json': _json,
+        '.ipynb': _json,
+        '.csv': _csv,
+        'application/csv': _csv,
+        '.org': _org,
+        '.org_archive': _org,
+        '.md': _markdown,
+        '.markdown': _markdown,
+        'text/plain': _plaintext,
+        '.txt': _plaintext,
+        '.page': _plaintext,
+        '.rst': _plaintext,
+        # TODO doesn't work that great; weird stuff like
+        # builtins.ImportError.name|2019-07-10T12:12:35.584510+00:00|names::ImportError::node::names::name::node::fullname
+        # TODO could have stricter url extraction for that; always using http/https?
+        # '.ipynb'      : _json,
+        '.html': _html,
+        'text/html': _html,
+        'text/xml': _plaintext,
+        'text/x-po': _plaintext,  # some translation files
+    }
+)
 
 for t in CODE:
     TYPE2IDX[t] = _plaintext
 # TODO ok, mime doesn't really tell between org/markdown/etc anyway
 
 
-Replacer = Optional[Callable[[str, str], str]]
+Replacer = Callable[[str, str], str] | None
+
 
 def index(
-        *paths: Union[PathIsh],
-        ignored: Union[Sequence[str], str]=(),
-        follow: bool=True,
-        replacer: Replacer=None,
+    *paths: PathIsh,
+    ignored: Sequence[str] | str = (),
+    follow: bool = True,
+    replacer: Replacer = None,
 ) -> Results:
     '''
     path   : a path or list of paths to recursively index
@@ -203,16 +223,17 @@ def index(
         )
         yield from _index(apath, opts=opts)
 
+
 class Options(NamedTuple):
     ignored: Sequence[str]
     follow: bool
     # TODO option to add ignores? not sure..
     # TODO I don't like this replacer thing... think about removing it
     replacer: Replacer
-    root: Optional[Path]=None
+    root: Path | None = None
 
 
-def _index_file_aux(path: Path, opts: Options) -> Union[Exception, List[Result]]:
+def _index_file_aux(path: Path, opts: Options) -> Exception | list[Result]:
     # just a helper for the concurrent version (the generator isn't picklable)
     try:
         return list(_index_file(path, opts=opts))
@@ -225,14 +246,14 @@ def _index(path: Path, opts: Options) -> Results:
     logger = get_logger()
 
     cores = use_cores()
-    if cores is None: # do not use cores
+    if cores is None:  # do not use cores
         # todo use ExitStack instead?
         pool = nullcontext()
-        mapper = map # dummy pool
+        mapper = map  # dummy pool
     else:
         workers = None if cores == 0 else cores
-        pool = Pool(workers) # type: ignore
-        mapper = pool.map # type: ignore
+        pool = Pool(workers)  # type: ignore[assignment]
+        mapper = pool.map  # type: ignore[attr-defined]
 
     # iterate over resolved paths, to avoid duplicates
     def rit() -> Iterable[Path]:
@@ -242,18 +263,19 @@ def _index(path: Path, opts: Options) -> Results:
                 # TODO not sure if should log here... might end up with quite a bit of logs
                 logger.debug('ignoring %s: user ignore rules', p)
                 continue
-            if any(i in p.parts for i in IGNORE): # meh, not very efficient.. pass to traverse??
+            if any(i in p.parts for i in IGNORE):  # meh, not very efficient.. pass to traverse??
                 logger.debug('ignoring %s: default ignore rules', p)
                 continue
 
             p = p.resolve()
-            if not os.path.exists(p):
+            if not os.path.exists(p):  # noqa: PTH110
                 logger.debug('ignoring %s: broken symlink?', p)
                 continue
 
             yield p
 
     from more_itertools import unique_everseen
+
     it = unique_everseen(rit())
 
     with pool:
@@ -265,8 +287,10 @@ def _index(path: Path, opts: Options) -> Results:
 
 
 Mime = str
-from .filetypes import Ex # meh
-def by_path(pp: Path) -> Tuple[Optional[Ex], Optional[Mime]]:
+from .filetypes import Ex  # meh
+
+
+def by_path(pp: Path) -> tuple[Ex | None, Mime | None]:
     suf = pp.suffix.lower()
     # firt check suffixes, it's faster
     s = type2idx(suf)
@@ -282,13 +306,16 @@ def by_path(pp: Path) -> Tuple[Optional[Ex], Optional[Mime]]:
 
 def _index_file(pp: Path, opts: Options) -> Results:
     logger = get_logger()
+    # TODO need to keep debug logs here...
+    # logger.info(f"indexing {pp}")
     # TODO use kompress?
     # TODO not even sure if it's used...
     suf = pp.suffix.lower()
 
-    if suf == '.xz': # TODO zstd?
+    if suf == '.xz':  # TODO zstd?
         import lzma
-        uname = pp.name[:-len('.xz')]  # chop off suffix, so the downstream indexer can handle it
+
+        uname = pp.name[: -len('.xz')]  # chop off suffix, so the downstream indexer can handle it
 
         assert pp.is_absolute(), pp
         # make sure to keep hierarchy, otherwise might end up with some name conflicts if filenames clash
@@ -307,18 +334,17 @@ def _index_file(pp: Path, opts: Options) -> Results:
 
     ip, pm = by_path(pp)
     if ip is None:
-        # TODO use warning (with mime/ext as key?)
-        # TODO only log once? # hmm..
+        # todo not really sure about using warnings vs yielding error here?
         msg = f'No extractor for suffix {suf}, mime {pm}'
-        warnings.warn(msg)
+        warn_once(msg)
         yield echain(ex, RuntimeError(msg))
         return
 
-    logger.debug('indexing via %s: %s', ip.__name__, pp)
+    logger.debug('indexing via %s: %s', ip.__name__, pp)  # ty: ignore[unresolved-attribute]
 
-    def indexer() -> Union[Urls, Results]:
+    def indexer() -> Urls | Results:
         # eh, annoying.. need to make more generic..
-        idx = ip(pp) # type: ignore
+        idx = ip(pp)
         try:
             yield from idx
         except Exception as e:
@@ -344,17 +370,20 @@ def _index_file(pp: Path, opts: Options) -> Results:
             v = r
 
         loc = v.locator
-        if loc is not None and root is not None:
+        # FIXME double checke that v.locator indeed can't be none and remove the check?
+        if loc is not None and root is not None:  # type: ignore[redundant-expr]
             # meh. but it works
             # todo potentially, just use dataclasses instead...
             loc = loc._replace(title=loc.title.replace(str(root) + os.sep, ''))
             v = v._replace(locator=loc)
 
         if replacer is not None and root is not None:
-            upd: Dict[str, Any] = {}
+            upd: dict[str, Any] = {}
             href = v.locator.href
             if href is not None:
-                upd['locator'] = v.locator._replace(href=replacer(href, str(root)), title=replacer(v.locator.title, str(root)))
+                upd['locator'] = v.locator._replace(
+                    href=replacer(href, str(root)), title=replacer(v.locator.title, str(root))
+                )
             ctx = v.context
             if ctx is not None:
                 # TODO in context, http is unnecessary

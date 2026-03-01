@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime
+from functools import cached_property
+from pathlib import Path
+from typing import Any
+
+from selenium import webdriver
+
+from .common import logger
+from .utils import timeout
+from .webdriver_utils import get_browser_process, is_headless
+
+
+@dataclass
+class AddonHelper:
+    driver: webdriver.Remote
+    addon_source: Path
+
+    @cached_property
+    def addon_id(self) -> str:
+        return get_addon_id(driver=self.driver)
+
+    @cached_property
+    def manifest(self) -> Any:
+        # ugh. sadly (at least in Firefox) there doesn't seem a way to read actual manifest loaded in browser?
+        return json.loads((self.addon_source / 'manifest.json').read_text())
+
+    @cached_property
+    def manifest_version(self) -> int:
+        return self.manifest['manifest_version']
+
+    @property
+    def extension_prefix(self) -> str:
+        protocol = {
+            'chrome': 'chrome-extension',
+            'firefox': 'moz-extension',
+        }[self.driver.name]
+        return f'{protocol}://{self.addon_id}'
+
+    def open_page(self, path: str) -> None:
+        self.driver.get(self.extension_prefix + '/' + path)
+
+    @property
+    def options_page_name(self) -> str:
+        return self.manifest['options_ui']['page']
+
+    @property
+    def headless(self) -> bool:
+        return is_headless(self.driver)
+
+    @property
+    def _has_selenium_bridge(self) -> bool:
+        return any(entry.get('js') == ['selenium_bridge.js'] for entry in self.manifest.get('content_scripts', []))
+
+    def _wait_for_selenium_bridge(self) -> None:
+        assert self._has_selenium_bridge, (
+            "This won't work without selenium_bridge.js, you probably built the extension in --publish mode"
+        )
+        # wait until selenium_bridge is injected, otherwise it's possible to have a race condition
+        # usually it happens very quickly, but retry a few times just in case
+        for _ in timeout(seconds=5):  # previously had on 2 second, but sometimes takes a bit longer on github actions
+            if self.driver.execute_script('return document.documentElement.dataset.seleniumBridgeInjected'):
+                break
+
+    def trigger_command(self, command: str) -> None:
+        # note: also for chrome possible to extract from prefs['extensions']['commands'] if necessary
+        commands = self.manifest['commands']
+        assert command in commands, (command, commands)
+
+        if self.headless:
+            self._wait_for_selenium_bridge()
+            self.driver.execute_script('document.dispatchEvent(new Event(arguments[0]))', f'selenium-bridge-{command}')
+        else:
+            hotkey = commands[command]['suggested_key']['default']
+            self.gui_hotkey(hotkey)
+
+    def get_extension_state(self) -> dict[str, Any]:
+        """
+        Returns a dict with keys like 'badge_text', 'title', or 'error' if something went wrong.
+        """
+        self._wait_for_selenium_bridge()
+
+        # use a timestamp to make sure we don't read some stale response
+        timestamp_ms = int(datetime.now().timestamp() * 1000)
+        self.driver.execute_script(
+            "document.dispatchEvent(new CustomEvent('selenium-bridge-get-state', {detail: {timestamp_ms: arguments[0]}}))",
+            timestamp_ms,
+        )
+
+        # wait for response to appear in DOM
+        for _ in timeout(seconds=5):
+            state_json = self.driver.execute_script('return document.documentElement.dataset.seleniumBridgeState')
+            if state_json is None:
+                continue
+            state = json.loads(state_json)
+            if state.get('timestamp_ms') != timestamp_ms:
+                continue
+            return state
+        raise RuntimeError("Shouldn't happen")
+
+    def gui_hotkey(self, key: str) -> None:
+        assert not self.headless  # just in case
+        lkey = key.lower().split('+')
+        logger.debug(f'pyautogui: sending hotkey {lkey}')
+
+        import pyautogui
+
+        focus_browser_window(self.driver)
+        pyautogui.hotkey(*lkey)
+
+    def gui_write(self, *args, **kwargs) -> None:
+        assert not self.headless
+
+        logger.debug(f'pyautogui: typing {args} {kwargs}')
+
+        import pyautogui
+
+        focus_browser_window(self.driver)
+        pyautogui.write(*args, **kwargs)
+
+
+# NOTE looks like it used to be posssible in webdriver api?
+# at least as of 2011 https://github.com/gavinp/chromium/blob/681563ea0f892a051f4ef3d5e53438e0bb7d2261/chrome/test/webdriver/test/chromedriver.py#L35-L40
+# but here https://github.com/SeleniumHQ/selenium/blob/master/cpp/webdriver-server/command_types.h there are no Extension commands
+# also see driver.command_executor._commands
+def _get_chrome_addon_id(driver: webdriver.Remote) -> str:
+    """
+    For a temporary addon extension id is autogenerated, so we need to extract it every time
+    """
+    user_data_dir = Path(driver.capabilities['chrome']['userDataDir'])
+    prefs_file = user_data_dir / 'Default/Preferences'
+    assert prefs_file.exists(), prefs_file
+
+    # for some idiotic reason, after chrome launches, extension settings aren't immediately available
+    # this can take up to 30 secons in this loop until they are populated
+    while True:
+        prefs = json.loads(prefs_file.read_text())
+        extension_settings = prefs.get('extensions', {}).get('settings', None)
+        if extension_settings is not None:
+            # there are some other weird builtin extension as well
+            # this seems like the easiest way to filter them out extracing by extension name or path
+            [addon_id] = [k for k, v in extension_settings.items() if v['creation_flags'] != 1]
+            return addon_id
+
+
+def _get_firefox_addon_id(driver: webdriver.Remote) -> str:
+    moz_profile = Path(driver.capabilities['moz:profile'])
+    prefs_file = moz_profile / 'prefs.js'
+    assert prefs_file.exists(), prefs_file
+
+    while True:
+        for line in prefs_file.read_text().splitlines():
+            m = re.fullmatch(r'user_pref\("extensions.webextensions.uuids", "(.*)"\);', line)
+            if m is None:
+                continue
+            # this contains a json with escaped quotes
+            user_prefs_s = m.group(1).replace('\\', '')
+            user_prefs = json.loads(user_prefs_s)
+            addon_ids = [v for k, v in user_prefs.items() if 'mozilla.' not in k]
+            if len(addon_ids) == 0:
+                # for some stupid reason it doesn't appear immediately in the file
+                continue
+            [addon_id] = addon_ids
+            return addon_id
+
+
+def get_addon_id(driver: webdriver.Remote) -> str:
+    extractor = {
+        'firefox': _get_firefox_addon_id,
+        'chrome': _get_chrome_addon_id,
+    }[driver.name]
+    return extractor(driver)
+
+
+def get_window_id(driver: webdriver.Remote) -> str:
+    if driver.name == 'firefox':
+        pid = str(driver.capabilities['moz:processID'])
+    elif driver.name == 'chrome':
+        # ugh no pid in capabilities...
+        chrome_process = get_browser_process(driver)
+        pid = str(chrome_process.pid)
+    else:
+        raise RuntimeError(driver.name)
+    return get_wid_by_pid(pid)
+
+
+def get_wid_by_pid(pid: str) -> str:
+    # https://askubuntu.com/a/385037/427470
+    wids = subprocess.check_output(['xdotool', 'search', '--pid', pid]).decode('utf8').splitlines()
+    wids = [w.strip() for w in wids if len(w.strip()) > 0]
+
+    def has_wm_desktop(wid: str) -> bool:
+        # TODO no idea why is that important. found out experimentally
+        out = subprocess.check_output(['xprop', '-id', wid, '_NET_WM_DESKTOP']).decode('utf8')
+        return 'not found' not in out
+
+    [wid] = filter(has_wm_desktop, wids)
+    return wid
+
+
+def focus_browser_window(driver: webdriver.Remote) -> None:
+    assert not is_headless(driver)  # just in case
+    wid = get_window_id(driver)
+    subprocess.check_call(['xdotool', 'windowactivate', '--sync', wid])

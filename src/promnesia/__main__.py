@@ -4,24 +4,34 @@ import argparse
 import ast
 import importlib
 import inspect
-from pathlib import Path
+import os
+import shlex
 import shutil
-from subprocess import run, check_call, Popen
 import sys
-from tempfile import TemporaryDirectory
-from typing import Callable, Sequence, Iterable, Iterator, Union
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from pathlib import Path
+from subprocess import Popen, check_call, run
+from tempfile import TemporaryDirectory, gettempdir
 
-
-from . import config
-from . import server
-from .misc import install_server
-from .common import Extractor, PathIsh, logger, get_tmpdir, DbVisit, Res
-from .common import Source, get_system_tz, user_config_file, default_config_path
-from .dump import visits_to_sqlite
+from . import config, server
+from .common import (
+    DbVisit,
+    Extractor,
+    PathIsh,
+    Res,
+    Source,
+    default_config_path,
+    get_system_tz,
+    get_tmpdir,
+    logger,
+    user_config_file,
+)
+from .database.dump import visits_to_sqlite
 from .extract import extract_visits
+from .misc import install_server
 
 
-def iter_all_visits(sources_subset: Iterable[Union[str, int]]=()) -> Iterator[Res[DbVisit]]:
+def iter_all_visits(sources_subset: Iterable[str | int] = ()) -> Iterator[Res[DbVisit]]:
     cfg = config.get()
     output_dir = cfg.output_dir
     # not sure if belongs here??
@@ -43,7 +53,7 @@ def iter_all_visits(sources_subset: Iterable[Union[str, int]]=()) -> Iterator[Re
         if name and is_subset_sources:
             matched = name in sources_subset or i in sources_subset
             if matched:
-                sources_subset -= {i, name}  # type: ignore
+                sources_subset -= {i, name}  # type: ignore[operator]
             else:
                 logger.debug("skipping '%s' not in --sources.", name)
                 continue
@@ -58,8 +68,7 @@ def iter_all_visits(sources_subset: Iterable[Union[str, int]]=()) -> Iterator[Re
             yield RuntimeError(f"Shouldn't have gotten this as a source: {source}")
             continue
 
-        # todo hmm it's not even used??
-        einfo = source.description
+        _einfo = source.description  # FIXME hmm it's not even used?? add as exception notes?
         for v in extract_visits(source, src=source.name):
             if hook is None:
                 yield v
@@ -69,13 +78,16 @@ def iter_all_visits(sources_subset: Iterable[Union[str, int]]=()) -> Iterator[Re
                 except Exception as e:
                     yield e
 
-    if sources_subset:
+    if sources_subset:  # type: ignore[truthy-iterable]
         logger.warning("unknown --sources: %s", ", ".join(repr(i) for i in sources_subset))
 
 
-def _do_index(dry: bool=False, sources_subset: Iterable[Union[str, int]]=(), overwrite_db: bool=False) -> Iterable[Exception]:
+def _do_index(
+    *, dry: bool = False, sources_subset: Iterable[str | int] = (), overwrite_db: bool = False
+) -> Iterable[Exception]:
     # also keep & return errors for further display
     errors: list[Exception] = []
+
     def it() -> Iterable[Res[DbVisit]]:
         for v in iter_all_visits(sources_subset):
             if isinstance(v, Exception):
@@ -96,35 +108,41 @@ def _do_index(dry: bool=False, sources_subset: Iterable[Union[str, int]]=(), ove
 
 
 def do_index(
-        config_file: Path,
-        dry: bool=False,
-        sources_subset: Iterable[Union[str, int]]=(),
-        overwrite_db: bool=False,
-    ) -> None:
-    config.load_from(config_file) # meh.. should be cleaner
+    config_file: Path,
+    *,
+    dry: bool = False,
+    sources_subset: Iterable[str | int] = (),
+    overwrite_db: bool = False,
+) -> Sequence[Exception]:
+    config.load_from(config_file)  # meh.. should be cleaner
     try:
         errors = list(_do_index(dry=dry, sources_subset=sources_subset, overwrite_db=overwrite_db))
     finally:
+        # this reset is mainly for tests, so we don't end up reusing the same config by accident
         config.reset()
     if len(errors) > 0:
         logger.error('%d errors, printing them out:', len(errors))
         for e in errors:
             logger.exception(e)
         logger.error('%d errors, exit code 1', len(errors))
-        sys.exit(1)
+    return errors
 
 
 def demo_sources() -> dict[str, Callable[[], Extractor]]:
     def lazy(name: str) -> Callable[[], Extractor]:
         # helper to avoid failed imports etc, since people might be lacking necessary dependencies
         def inner() -> Extractor:
-            from . import sources
+            # TODO why this import??
+            from . import sources  # noqa: F401
+
             module = importlib.import_module(f'promnesia.sources.{name}')
             return getattr(module, 'index')
+
         return inner
 
     res = {}
     import promnesia.sources
+
     path: list[str] = getattr(promnesia.sources, '__path__')  # should be present
     for p in path:
         for x in sorted(Path(p).glob('*.py')):
@@ -136,16 +154,16 @@ def demo_sources() -> dict[str, Callable[[], Extractor]]:
 
 
 def do_demo(
-        *,
-        index_as: str,
-        params: Sequence[str],
-        port: str | None,
-        config_file: Path | None,
-        dry: bool=False,
-        name: str='demo',
-        sources_subset: Iterable[Union[str, int]]=(),
-        overwrite_db: bool=False,
-    ) -> None:
+    *,
+    index_as: str,
+    params: Sequence[str],
+    port: str | None,
+    config_file: Path | None,
+    dry: bool = False,
+    name: str = 'demo',
+    sources_subset: Iterable[str | int] = (),
+    overwrite_db: bool = False,
+) -> None:
     with TemporaryDirectory() as tdir:
         outdir = Path(tdir)
 
@@ -168,17 +186,17 @@ def do_demo(
 
         dbp = config.get().db
         if port is None:
-            logger.warning(f"Port isn't specified, not serving!\nYou can inspect the database in the meantime, e.g. 'sqlitebrowser {dbp}'")
+            logger.warning(
+                f"Port isn't specified, not serving!\nYou can inspect the database in the meantime, e.g. 'sqlitebrowser {dbp}'"
+            )
         else:
             from .server import ServerConfig
+
             server._run(
                 host='127.0.0.1',
                 port=port,
                 quiet=False,
-                config=ServerConfig(
-                    db=dbp,
-                    timezone=get_system_tz()
-                ),
+                config=ServerConfig(db=dbp, timezone=get_system_tz()),
             )
 
         if sys.stdin.isatty():
@@ -187,6 +205,7 @@ def do_demo(
 
 def read_example_config() -> str:
     from .misc import config_example
+
     return inspect.getsource(config_example)
 
 
@@ -200,7 +219,10 @@ def config_create(args: argparse.Namespace) -> None:
         stub = read_example_config()
         cfgdir.mkdir(parents=True)
         cfg.write_text(stub)
-        logger.info("Created a stub config in '%s'. Edit it to tune to your liking. (see https://github.com/karlicoss/promnesia#setup for more info)", cfg)
+        logger.info(
+            "Created a stub config in '%s'. Edit it to tune to your liking. (see https://github.com/karlicoss/promnesia#setup for more info)",
+            cfg,
+        )
 
 
 def config_check(args: argparse.Namespace) -> None:
@@ -216,33 +238,46 @@ def config_check(args: argparse.Namespace) -> None:
 def _config_check(cfg: Path) -> Iterable[Exception]:
     logger.info('config: %s', cfg)
 
-    def check(cmd: list[str | Path]) -> Iterable[Exception]:
-        logger.debug(' '.join(map(str, cmd)))
-        res = run(cmd)
+    def check(cmd: list[str | Path], **kwargs) -> Iterable[Exception]:
+        logger.debug(shlex.join(map(str, cmd)))
+        res = run(cmd, **kwargs)  # noqa: PLW1510
         if res.returncode > 0:
+            # TODO what's up with empty exception??
             yield Exception()
 
     logger.info('Checking syntax...')
     cmd: list[str | Path] = [sys.executable, '-m', 'compileall', cfg]
-    yield from check(cmd)
+    yield from check(
+        cmd,
+        env={
+            **os.environ,
+            # if config is on read only partition, the command would fail due to generated bytecode
+            # so put it in the temporary directory instead
+            'PYTHONPYCACHEPREFIX': gettempdir(),
+        },
+    )
 
     # todo not sure if should be more defensive than check_call here
     logger.info('Checking type safety...')
     try:
-        import mypy
+        import mypy  # noqa: F401
     except ImportError:
         logger.warning("mypy not found, can't use it to check config!")
     else:
-        yield from check([
-            sys.executable, '-m', 'mypy',
-            '--namespace-packages',
-            '--color-output', # not sure if works??
-            '--pretty',
-            '--show-error-codes',
-            '--show-error-context',
-            '--check-untyped-defs',
-            cfg,
-        ])
+        yield from check(
+            [
+                sys.executable,
+                '-m',
+                'mypy',
+                '--namespace-packages',
+                '--color-output',  # not sure if works??
+                '--pretty',
+                '--show-error-codes',
+                '--show-error-context',
+                '--check-untyped-defs',
+                cfg,
+            ]
+        )
 
     logger.info('Checking runtime errors...')
     yield from check([sys.executable, cfg])
@@ -250,7 +285,7 @@ def _config_check(cfg: Path) -> Iterable[Exception]:
 
 def cli_doctor_db(args: argparse.Namespace) -> None:
     # todo could fallback to 'sqlite3 <db> .dump'?
-    config.load_from(args.config) # TODO meh
+    config.load_from(args.config)  # TODO meh
     db = config.get().db
     if not db.exists():
         logger.error("Database {db} doesn't exist!")
@@ -277,16 +312,15 @@ def cli_doctor_server(args: argparse.Namespace) -> None:
     cmd = ['curl', endpoint]
     logger.info(f'Running {cmd}')
     check_call(cmd)
-    print() # curl doesn't add newline
+    print()  # curl doesn't add newline
     logger.info('You should see the database path and version above!')
 
 
-def _ordinal_or_name(s: str) -> Union[str, int]:
+def _ordinal_or_name(s: str) -> str | int:
     try:
-        s = int(s)  # type: ignore
+        return int(s)
     except ValueError:
-        pass
-    return s
+        return s
 
 
 def main() -> None:
@@ -298,7 +332,9 @@ def main() -> None:
             if not given, all :func:`demo_sources()` are run
         """
         parser.add_argument('--config', type=Path, default=default_config_path, help='Config path')
-        parser.add_argument('--dry', action='store_true', help="Dry run, won't touch the database, only print the results out")
+        parser.add_argument(
+            '--dry', action='store_true', help="Dry run, won't touch the database, only print the results out"
+        )
         parser.add_argument(
             '--sources',
             required=False,
@@ -312,62 +348,63 @@ def main() -> None:
             '--overwrite',
             required=False,
             action="store_true",
-            help="Empty db before populating it with newly indexed visits."
-            "  If interrupted, db is left untouched."
+            help="Empty db before populating it with newly indexed visits.  If interrupted, db is left untouched.",
         )
 
     F = lambda prog: argparse.ArgumentDefaultsHelpFormatter(prog, width=120)
-    p = argparse.ArgumentParser(formatter_class=F) # type: ignore
-    subp = p.add_subparsers(dest='mode', )
+    p = argparse.ArgumentParser(formatter_class=F)
+    subp = p.add_subparsers(dest='mode')
     ep = subp.add_parser('index', help='Create/update the link database', formatter_class=F)
     add_index_args(ep, default_config_path())
     # TODO use some way to override or provide config only via cmdline?
     ep.add_argument('--intermediate', required=False, help="Used for development, you don't need it")
 
-    sp = subp.add_parser('serve', help='Serve a link database', formatter_class=F) # type: ignore
+    sp = subp.add_parser('serve', help='Serve a link database', formatter_class=F)
     server.setup_parser(sp)
 
     ap = subp.add_parser('demo', help='Demo mode: index and serve a directory in single command', formatter_class=F)
     # TODO use docstring or something?
     #
 
-    add_port_arg = lambda p: p.add_argument('--port', type=str, default='13131'              , help='Port to serve on')
+    add_port_arg = lambda p: p.add_argument('--port', type=str, default='13131', help='Port to serve on')
 
-    ap.add_argument('--name', type=str, default='demo'               , help='Set custom source name')
+    ap.add_argument('--name', type=str, default='demo', help='Set custom source name')
     add_port_arg(ap)
-    ap.add_argument('--no-serve', action='store_const', const=None, dest='port', help='Pass to only index without running server')
+    ap.add_argument(
+        '--no-serve', action='store_const', const=None, dest='port', help='Pass to only index without running server'
+    )
     ap.add_argument(
         '--as',
-        choices=list(sorted(demo_sources().keys())),
+        choices=sorted(demo_sources().keys()),
         default='guess',
         help='Promnesia source to index as (see https://github.com/karlicoss/promnesia/tree/master/src/promnesia/sources for the full list)',
     )
     add_index_args(ap)
     ap.add_argument('params', nargs='*', help='Optional extra params for the indexer')
 
-    isp = subp.add_parser('install-server', help='Install server as a systemd service (for autostart)', formatter_class=F)
+    isp = subp.add_parser(
+        'install-server', help='Install server as a systemd service (for autostart)', formatter_class=F
+    )
     install_server.setup_parser(isp)
 
     cp = subp.add_parser('config', help='Config management')
-    cp.set_defaults(func=lambda *args: cp.print_help())
+    cp.set_defaults(func=lambda *_args: cp.print_help())
     scp = cp.add_subparsers()
     ccp = scp.add_parser('check', help='Check config')
     ccp.set_defaults(func=config_check)
     ccp.add_argument('--config', type=Path, default=default_config_path(), help='Config path')
 
     icp = scp.add_parser('create', help='Create user config')
-    icp.add_argument(
-        "--config", type=Path, default=default_config_path(), help="Config path"
-    )
+    icp.add_argument("--config", type=Path, default=default_config_path(), help="Config path")
     icp.set_defaults(func=config_create)
 
     dp = subp.add_parser('doctor', help='Troubleshooting assistant')
     dp.add_argument('--config', type=Path, default=default_config_path(), help='Config path')
-    dp.set_defaults(func=lambda *args: dp.print_help())
+    dp.set_defaults(func=lambda *_args: dp.print_help())
     sdp = dp.add_subparsers()
-    sdp.add_parser('config'  , help='Check config'    ).set_defaults(func=config_check )
+    sdp.add_parser('config', help='Check config').set_defaults(func=config_check)
     sdp.add_parser('database', help='Inspect database').set_defaults(func=cli_doctor_db)
-    sdps = sdp.add_parser('server'  , help='Check server'    )
+    sdps = sdp.add_parser('server', help='Check server')
     sdps.set_defaults(func=cli_doctor_server)
     add_port_arg(sdps)
 
@@ -386,14 +423,16 @@ def main() -> None:
     # the only downside is storage. dunno.
     # worst case -- could use database?
 
-    with get_tmpdir() as tdir: # TODO??
+    with get_tmpdir() as _tdir:  # TODO what's the tmp dir for??
         if mode == 'index':
-            do_index(
+            errors = do_index(
                 config_file=args.config,
                 dry=args.dry,
                 sources_subset=args.sources,
                 overwrite_db=args.overwrite,
             )
+            if len(errors) > 0:
+                sys.exit(1)
         elif mode == 'serve':
             server.run(args)
         elif mode == 'demo':
@@ -408,15 +447,14 @@ def main() -> None:
                 name=args.name,
                 sources_subset=args.sources,
                 overwrite_db=args.overwrite,
-                )
-        elif mode == 'install-server': # todo rename to 'autostart' or something?
+            )
+        elif mode == 'install-server':  # todo rename to 'autostart' or something?
             install_server.install(args)
-        elif mode == 'config':
-            args.func(args)
-        elif mode == 'doctor':
+        elif mode == 'config' or mode == 'doctor':
             args.func(args)
         else:
             raise AssertionError(f'unexpected mode {mode}')
+
 
 if __name__ == '__main__':
     main()

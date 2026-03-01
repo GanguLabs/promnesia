@@ -2,34 +2,33 @@
 Collects visits from Signal Desktop's encrypted SQLIite db(s).
 """
 
+from __future__ import annotations
+
 # Functions get their defaults from module-data.
 #
 # * Open-ciphered-db adapted from:
 #   https://github.com/carderne/signal-export/commit/2284c8f4
 # * Copyright (c) 2019 Chris Arderne, 2020 Kostis Anagnostopoulos
-
-
 import json
 import logging
 import platform
 import sqlite3
 import subprocess as sbp
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from textwrap import dedent, indent
-from typing import Any, Iterable, Iterator, Mapping, Union, Optional
+from typing import Any
 
 from ..common import Loc, PathIsh, Results, Visit, extract_urls, from_epoch
-
-PathIshes = Union[PathIsh, Iterable[PathIsh]]
 
 
 def index(
     *db_paths: PathIsh,
     http_only: bool = False,
-    locator_schema: str="editor",
+    locator_schema: str = "editor",
     append_platform_path: bool = False,
-    override_key: Optional[str] = None,
+    override_key: str | None = None,
 ) -> Results:
     """
     :param db_paths:
@@ -51,8 +50,7 @@ def index(
         otherwise, this same key is used for harvesting all db-files.
     """
     logger.debug(
-        "http_only?(%s), locator_schema?(%s), append_platform_path?(%s), "
-        "overide_key given?(%s), db_paths: %s",
+        "http_only?(%s), locator_schema?(%s), append_platform_path?(%s), overide_key given?(%s), db_paths: %s",
         http_only,
         locator_schema,
         append_platform_path,
@@ -63,6 +61,8 @@ def index(
     logger.debug("Paths to harvest: %s", db_paths)
     if not http_only:
         sql_query = f"{messages_query}\nWHERE body LIKE '%http%'"
+    else:
+        sql_query = messages_query
 
     for db_path in resolved_db_paths:
         logger.info("Ciphered db to harvest %s", db_path)
@@ -106,12 +106,18 @@ messages_query = dedent(
         SELECT
             id,
             type,
-            coalesce(name, profileName, profileFamilyName, e164) as aname,
+            coalesce(
+                profileFullName,
+                profileName,
+                name,
+                profileFamilyName,
+                e164
+            ) as aname,
             name,
             profileName,
             profileFamilyName,
             e164,
-            uuid
+            serviceId
         FROM conversations
     ),
     Msgs AS (
@@ -123,8 +129,8 @@ messages_query = dedent(
                 M.received_at,
                 M.sent_at
             ) AS timestamp,
-            IIF(M.type = "outgoing",
-                "Me (" || C2.aname || ")",
+            IIF(M.type = 'outgoing',
+                'Me (' || C2.aname || ')',
                 C2.aname
             ) AS sender,
             M.conversationId AS cid,
@@ -138,7 +144,7 @@ messages_query = dedent(
         INNER JOIN Cons AS C1
             ON M.conversationId = C1.id
         INNER JOIN Cons AS C2
-            ON M.sourceUuid = C2.uuid
+            ON M.sourceServiceId = C2.serviceId
     )
     SELECT id, timestamp, sender, cid, chatname, body
     FROM Msgs
@@ -163,7 +169,10 @@ def _expand_path(path_pattern: PathIsh) -> Iterable[Path]:
 
     Expansion code adapted from https://stackoverflow.com/a/51108375/548792
     to handle also degenerate cases (``'', '.', '/'``):
+    """
 
+    # NOTE: suppressing doctest from github actions
+    """
     >>> str(next(iter(_get_files('/'))))
     '/'
 
@@ -186,10 +195,10 @@ def _expand_path(path_pattern: PathIsh) -> Iterable[Path]:
     return path.glob(str(Path(*parts))) if parts else [path]
 
 
-def _expand_paths(paths: PathIshes) -> Iterable[Path]:
+def _expand_paths(paths: PathIsh | Iterable[PathIsh]) -> Iterable[Path]:
     if _is_pathish(paths):
-        paths = [paths]  # type: ignore[assignment,list-item]
-    return [pp.resolve() for p in paths for pp in _expand_path(p)]  # type: ignore[union-attr,list-item]
+        paths = [paths]  # type: ignore[list-item]
+    return [pp.resolve() for p in paths for pp in _expand_path(p)]  # type: ignore[union-attr]
 
 
 def collect_db_paths(*db_paths: PathIsh, append: bool = False) -> Iterable[Path]:
@@ -206,7 +215,10 @@ def collect_db_paths(*db_paths: PathIsh, append: bool = False) -> Iterable[Path]
         one or more pathish
 
     Note: needed `append` here, to resolve paths.
+    """
 
+    # NOTE: suppressing doctest from running on Github actions
+    """
     >>> bool(collect_db_paths())  # my home-path
     True
     >>> collect_db_paths(None)
@@ -229,14 +241,13 @@ def collect_db_paths(*db_paths: PathIsh, append: bool = False) -> Iterable[Path]
         platform_name = platform.system()
         try:
             plat_paths = platform_db_paths[platform_name]
-        except LookupError:
+        except LookupError as le:
             raise ValueError(
-                f"Unknown platform({platform_name}!"
-                f"\n  Expected one of {list(platform_db_paths.keys())}."
-            )
+                f"Unknown platform({platform_name}!\n  Expected one of {list(platform_db_paths.keys())}."
+            ) from le
 
         if db_paths and append:
-            db_paths = [  # type: ignore[misc,assignment]
+            db_paths = [  # type: ignore[assignment]
                 *([db_paths] if _is_pathish(db_paths) else db_paths),
                 plat_paths,
             ]
@@ -253,7 +264,7 @@ def _config_for_dbfile(db_path: Path, default_key=None) -> Path:
 
 
 def _key_from_config(signal_desktop_config_path: PathIsh) -> str:
-    with open(signal_desktop_config_path, "r") as conf:
+    with Path(signal_desktop_config_path).open() as conf:
         return json.load(conf)["key"]
 
 
@@ -261,6 +272,7 @@ def _key_from_config(signal_desktop_config_path: PathIsh) -> str:
 def connect_db(
     db_path: Path,
     key,
+    *,
     decrypt_db: bool = False,
     sqlcipher_exe: PathIsh = "sqlcipher",
     **decryption_pragmas: Mapping[str, Any],
@@ -310,22 +322,20 @@ def connect_db(
             sql_cmds.extend(
                 [
                     f"ATTACH DATABASE '{decrypted_file}' AS plaintext KEY '';",
-                    f"SELECT sqlcipher_export('plaintext');",
-                    f"DETACH DATABASE plaintext;",
+                    "SELECT sqlcipher_export('plaintext');",
+                    "DETACH DATABASE plaintext;",
                 ]
             )
             sql = "\n".join(sql_cmds)
             cmd = [sqlcipher_exe, str(db_path)]
-            logger.debug(
-                "Decrypting db '%s' with cmd: %s <<<EOF\n%s\nEOF", db_path, cmd, sql
-            )
+            logger.debug("Decrypting db '%s' with cmd: %s <<<EOF\n%s\nEOF", db_path, cmd, sql)
             try:
-                sbp.run(  # type: ignore[call-overload]
+                sbp.run(
                     cmd,
                     check=True,
                     input=sql,
                     capture_output=True,
-                    universal_newlines=True,
+                    text=True,
                 )
             except sbp.CalledProcessError as ex:
                 prefix = " " * 4
@@ -335,7 +345,7 @@ def connect_db(
                 ) from None
             db = sqlite3.connect(f"file:{decrypted_file}?mode=ro", uri=True)
         else:
-            from sqlcipher3 import dbapi2  # type: ignore[import]
+            from sqlcipher3 import dbapi2  # type: ignore[import-not-found]
 
             db = dbapi2.connect(f"file:{db_path}?mode=ro", uri=True)
             # Param-binding doesn't work for pragmas, so use a direct string concat.
@@ -349,12 +359,11 @@ def connect_db(
         yield db
     finally:
         try:
-            if db:
+            if db is not None:
                 db.close()
         finally:
             if decrypted_file and decrypted_file.exists():
                 try:
-
                     logger.debug("Deleting temporary decrypted db: %s", decrypted_file)
                     decrypted_file.unlink()
                 except Exception as ex:
@@ -367,12 +376,12 @@ def connect_db(
 
 
 def _handle_row(row: tuple, db_path: PathIsh, locator_schema: str) -> Results:
-    mid, tstamp, sender, cid, chatname, text = row
+    mid, tstamp, sender, _cid, chatname, text = row
     urls = extract_urls(text)
     if not urls:
         return
 
-    assert (
+    assert (  # noqa: PT018
         text and mid and sender and chatname
     ), f"should have eliminated messages without 'http' or missing ids: {row}"
 
@@ -392,7 +401,7 @@ def _harvest_db(
     db_path: Path,
     messages_query: str,
     *,
-    override_key: Optional[str] = None,
+    override_key: str | None = None,
     locator_schema: str = "editor",
     decrypt_db: bool = False,
     **decryption_pragmas,
@@ -419,9 +428,9 @@ def _harvest_db(
 
     with connect_db(db_path, key, decrypt_db=decrypt_db, **decryption_pragmas) as db:
         for mid, tstamp, sender, cid, chatname, text in db.execute(messages_query):
+            tstamp = from_epoch(tstamp / 1000.0)
+            row = (mid, tstamp, sender, cid, chatname, text)
             try:
-                tstamp = from_epoch(tstamp / 1000.0)
-                row = (mid, tstamp, sender, cid, chatname, text)
                 yield from _handle_row(row, db_path, locator_schema)
             except Exception as ex:
                 # TODO: also insert errors in db

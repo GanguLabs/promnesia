@@ -2,11 +2,12 @@
 Uses [[https://github.com/karlicoss/HPI][HPI]] for Roam Research data
 '''
 
-from ..common import Results, Visit, Loc, extract_urls
+from promnesia.common import Loc, Results, Visit, extract_urls
 
 
 def index() -> Results:
     import my.roamresearch as RR
+
     roam = RR.roam()
     for node in roam.traverse():
         yield from _collect(node)
@@ -14,7 +15,7 @@ def index() -> Results:
 
 def _collect(node: 'RoamNode') -> Results:
     title = node.title
-    body  = node.body or ''
+    body = node.body or ''
     if title is None:
         # most notes don't have title, so we just take the first line instead..
         lines = body.splitlines(keepends=True)
@@ -43,6 +44,8 @@ def _collect(node: 'RoamNode') -> Results:
 
 
 import typing
+
 if typing.TYPE_CHECKING:
     import my.roamresearch as RR
+
     RoamNode = RR.Node

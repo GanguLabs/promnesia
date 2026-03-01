@@ -1,55 +1,53 @@
-from pathlib import Path
-import os
-from types import ModuleType
-from typing import List, Optional, Union, NamedTuple, Iterable, Callable
+from __future__ import annotations
+
 import importlib
 import importlib.util
+import os
 import warnings
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from types import ModuleType
+from typing import NamedTuple
 
-from .common import PathIsh, get_tmpdir, appdirs, default_output_dir, default_cache_dir, user_config_file
-from .common import Res, Source, DbVisit
-
+from .common import DbVisit, PathIsh, Res, Source, default_cache_dir, default_output_dir
 
 HookT = Callable[[Res[DbVisit]], Iterable[Res[DbVisit]]]
-
-
-from typing import Any
 
 
 ModuleName = str
 
 # something that can be converted into a proper Source
-ConfigSource = Union[Source, ModuleName, ModuleType]
+ConfigSource = Source | ModuleName | ModuleType
 
 
 class Config(NamedTuple):
     # TODO remove default from sources once migrated
-    SOURCES: List[ConfigSource] = []
+    SOURCES: list[ConfigSource] = []  # noqa: RUF012
 
     # if not specified, uses user data dir
-    OUTPUT_DIR: Optional[PathIsh] = None
+    OUTPUT_DIR: PathIsh | None = None
 
-    CACHE_DIR: Optional[PathIsh] = ''
-    FILTERS: List[str] = []
+    CACHE_DIR: PathIsh | None = ''
+    FILTERS: list[str] = []  # noqa: RUF012
 
-    HOOK: Optional[HookT] = None
+    HOOK: HookT | None = None
 
     #
     # NOTE: INDEXERS is deprecated, use SOURCES instead
-    INDEXERS: List[ConfigSource] = []
-    #MIME_HANDLER: Optional[str] = None # TODO
+    INDEXERS: list[ConfigSource] = []  # noqa: RUF012
+    # MIME_HANDLER: Optional[str] = None # TODO
 
     @property
     def sources(self) -> Iterable[Res[Source]]:
-        idx = self.INDEXERS
-
         if len(self.INDEXERS) > 0:
             warnings.warn("'INDEXERS' is deprecated. Please use 'SOURCES'!", DeprecationWarning)
 
         raw = self.SOURCES + self.INDEXERS
 
         if len(raw) == 0:
-            raise RuntimeError("Please specify SOURCES in the config! See https://github.com/karlicoss/promnesia#setup for more information")
+            raise RuntimeError(
+                "Please specify SOURCES in the config! See https://github.com/karlicoss/promnesia#setup for more information"
+            )
 
         for r in raw:
             if isinstance(r, ModuleName):
@@ -68,12 +66,14 @@ class Config(NamedTuple):
                 yield Source(r)
 
     @property
-    def cache_dir(self) -> Optional[Path]:
+    def cache_dir(self) -> Path | None:
+        # TODO we used to use this for cachew, but it's best to rely on HPI modules etc to cofigure this
+        # keeping just in case for now
         cd = self.CACHE_DIR
-        cpath: Optional[Path]
+        cpath: Path | None
         if cd is None:
-            cpath = None # means 'disabled' in cachew
-        elif cd == '': # meh.. but need to make it None friendly..
+            cpath = None  # means 'disabled' in cachew
+        elif cd == '':  # meh.. but need to make it None friendly..
             cpath = default_cache_dir()
         else:
             cpath = Path(cd)
@@ -94,14 +94,16 @@ class Config(NamedTuple):
         return self.output_dir / 'promnesia.sqlite'
 
     @property
-    def hook(self) -> Optional[HookT]:
+    def hook(self) -> HookT | None:
         return self.HOOK
 
-instance: Optional[Config] = None
+
+instance: Config | None = None
 
 
 def has() -> bool:
     return instance is not None
+
 
 def get() -> Config:
     assert instance is not None, "Expected config to be set, but it's not"
@@ -124,10 +126,13 @@ def import_config(config_file: PathIsh) -> Config:
 
     # todo just exec??
     name = p.stem
-    spec = importlib.util.spec_from_file_location(name, p); assert spec is not None
-    mod = importlib.util.module_from_spec(spec); assert mod is not None
-    loader = spec.loader; assert loader is not None
-    loader.exec_module(mod) # type: ignore[attr-defined]
+    spec = importlib.util.spec_from_file_location(name, p)
+    assert spec is not None
+    mod = importlib.util.module_from_spec(spec)
+    assert mod is not None
+    loader = spec.loader
+    assert loader is not None
+    loader.exec_module(mod)
 
     d = {}
     for f in Config._fields:
@@ -137,7 +142,7 @@ def import_config(config_file: PathIsh) -> Config:
 
 
 # TODO: ugh. this causes warnings to be repeated multiple times... need to reuse the pool or something..
-def use_cores() -> Optional[int]:
+def use_cores() -> int | None:
     '''
     Somewhat experimental.
     For now only used in sources.auto, perhaps later will be shared among the other indexers.
@@ -148,15 +153,15 @@ def use_cores() -> Optional[int]:
         return None
     try:
         return int(cs)
-    except ValueError: # any other value means 'use all
+    except ValueError:  # any other value means 'use all
         return 0
 
 
-def extra_fd_args() -> List[str]:
+def extra_fd_args() -> list[str]:
     '''
     Not sure where it belongs yet... so via env variable for now
     Can be used to pass --ignore-file parameter
     '''
     v = os.environ.get('PROMNESIA_FD_EXTRA_ARGS', '')
-    extra = v.split() # eh, hopefully splitting that way is ok...
+    extra = v.split()  # eh, hopefully splitting that way is ok...
     return extra

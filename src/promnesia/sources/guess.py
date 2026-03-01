@@ -1,6 +1,7 @@
 # TODO eh. confusing how guess and auto are different...
 # maybe merge them later?
-from typing import Iterable, Any
+from collections.abc import Iterable
+from typing import Any
 
 from ..common import Extraction, PathIsh
 
@@ -21,14 +22,17 @@ def index(path: PathIsh, *args, **kwargs) -> Iterable[Extraction]:
     ps = str(path)
     # TODO better url detection
 
-    index_: Any # meh
+    index_: Any  # meh
     if is_git_repo(ps):
         from . import vcs
+
         index_ = vcs.index
     elif is_website(ps):
         from . import website
+
         index_ = website.index
     else:
         from . import auto
+
         index_ = auto.index
     yield from index_(path, *args, **kwargs)

@@ -1,14 +1,15 @@
 """
 Uses HPI [[https://github.com/karlicoss/HPI/blob/master/doc/MODULES.org#myhypothesis][hypothesis]] module
 """
-from ..common import Loc, Results, Visit, extract_urls, join_tags
+
+from promnesia.common import Loc, Results, Visit, extract_urls, join_tags
 
 
 def index() -> Results:
-    from . import hpi
+    from . import hpi  # noqa: F401,I001
     import my.hypothesis as hyp
 
-    for h in hyp.get_highlights():
+    for h in hyp.highlights():
         if isinstance(h, Exception):
             yield h
             continue

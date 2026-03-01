@@ -1,0 +1,140 @@
+# see https://github.com/karlicoss/pymplate for up-to-date reference
+[project]
+dynamic = ["version"]  # version is managed by build backend
+name = "promnesia"
+dependencies = [
+    "platformdirs",       # for portable user directories detection
+    "tzlocal",            # guessling local timezone
+    "more_itertools",
+    "typing-extensions",
+    "sqlalchemy>=2.0",    # DB api
+
+    ##
+    # NOTE: ideally we don't need to install them by default?
+    # i.e. server and indexer can run on different hosts/containers etc
+    # keeping here for backwards compatibility for now
+    "promnesia[indexer]",
+    "promnesia[server]",
+    ##
+]
+requires-python = ">=3.12"
+
+## these are only useful for pypi
+description = "Enhancement of your browsing history"
+license     = {file = "LICENSE"}
+authors     = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
+maintainers = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
+
+[project.urls]
+Homepage = "https://github.com/karlicoss/promnesia"
+##
+
+
+[project.optional-dependencies]
+indexer = [
+    # indexer only dependencies
+    "urlextract",
+]
+server = [
+    # server only dependencies
+    "fastapi",
+    "uvicorn[standard]",
+]
+optional = [
+    # dependencies that bring some bells & whistles
+    "logzero"     ,  # pretty colored logging
+    "python-magic",  # better mimetype decetion
+]
+HPI = [
+    # dependencies for https://github.com/karlicoss/HPI
+    "HPI",  # pypi version
+    # TODO add notes how to override with github version?
+]
+html = [
+    # dependencies for sources.html
+    "beautifulsoup4",  # extracting links from the page
+    "lxml"          ,  # bs4 backend
+]
+markdown = [
+    # dependencies for sources.html
+    "mistletoe",
+]
+org = [
+    # dependencies for sources.org
+    "orgparse>=0.3.0",
+]
+telegram = [
+    # used to depend on 'dataset', keeping for backwards compatibility
+]
+all = [
+    "promnesia[indexer,server,optional,HPI,html,markdown,org]",
+]
+
+[dependency-groups]
+# TODO: not sure, on the one hand could just use 'standard' dev dependency group
+# On the other hand, it's a bit annoying that it's always included by default? 
+# To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
+testing = [
+    "pytest>=9",  # need version 9 for proper namespace package support
+    "ruff",
+    
+    "hypothesis",
+
+    "psutil",
+    "requests",
+
+    # NOTE: markdown is only used for test_cli... might be nice to decouple
+    "promnesia[markdown]",
+]
+testing-all = [
+    { include-group = "testing" },
+    "promnesia[all]",
+]
+testing-end2end = [
+    { include-group = "testing-all" },
+
+    "selenium",   # browser automations
+    "loguru",     # used in addon_helper... not sure if should just use promnesia's logger?
+    "click",      # confirmations for end2end test
+    "pyautogui",  # for keyboard automation during end2end tests
+    "ipdb"     ,  # optional but a bit nicer for breakpoints
+
+    "pytest-timeout",  # for PYTEST_TIMEOUT env variable
+    "pytest-xdist"  ,  # not used atm, but helpful to parallelise end2end tests
+    "pytest-repeat" ,  # helpful to debug flaky tests
+]
+typecheck = [
+    { include-group = "testing" },
+    "mypy",
+    "lxml", # for mypy html coverage
+    "ty>=0.0.8",
+
+    "types-requests",
+    "types-psutil",
+]
+typecheck-all = [
+    { include-group = "typecheck" },
+    { include-group = "testing-end2end" },
+
+    "types-PyAutoGUI",
+]
+
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# unfortunately have to duplicate project name here atm, see https://github.com/pypa/hatch/issues/1894
+[tool.hatch.build.targets.wheel]
+packages = ["src/promnesia"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+version_scheme = "python-simplified-semver"
+local_scheme = "dirty-tag"
+
+
+[project.scripts]
+promnesia = "promnesia.__main__:main"

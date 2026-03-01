@@ -1,38 +1,42 @@
-#!/usr/bin/env python3
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Callable, Optional, Sequence, NamedTuple, Union, Iterable
+from typing import NamedTuple
 
 from ..common import Results, Url
-
 
 # TODO doesn't really belong here...
 Ctx = Sequence[str]
 
+
 class EUrl(NamedTuple):
     url: Url
-    ctx: Ctx # TODO ctx here is more like a Loc
+    ctx: Ctx  # TODO ctx here is more like a Loc
+
+
 ###
 
 
 # keys are mime types + extensions
-Ex = Callable[[Path], Union[Results, Iterable[EUrl]]]
+Ex = Callable[[Path], Results | Iterable[EUrl]]
 # None means unhandled
-TYPE2IDX: Dict[str, Optional[Ex]] = {}
+TYPE2IDX: dict[str, Ex | None] = {}
 # NOTE: there are some types in auto.py at the moment... it's a bit messy
 
 
 # TYPE2IDX only contains the 'prefixes', to speed up the lookup we are using cache..
 @lru_cache(None)
-def type2idx(t: str) -> Optional[Ex]:
+def type2idx(t: str) -> Ex | None:
     if len(t) == 0:
-        return None # just in case?
+        return None  # just in case?
     # first try exact match
-    e = TYPE2IDX.get(t, None)
+    e = TYPE2IDX.get(t)
     if e is not None:
         return e
     t = t.strip('.')
-    e = TYPE2IDX.get(t, None)
+    e = TYPE2IDX.get(t)
     if e is not None:
         return e
     # otherwise, try prefixes?
@@ -40,6 +44,7 @@ def type2idx(t: str) -> Optional[Ex]:
         if t.strip('.').startswith(k):
             return v
     return None
+
 
 # for now source code just indexed with grep, not sure if it's good enough?
 # if not, some fanceir library could be used...
@@ -67,6 +72,7 @@ CODE = {
     'text/vnd.graphviz',
     'text/x-diff',  # patch files
     'text/x-php',
+    'text/x-lilypond',
 
     # these didn't have a mime type, or were mistyped?
     'css',
@@ -80,7 +86,7 @@ CODE = {
 
     '.ts', # most likely typescript.. otherwise determined as text/vnd.trolltech.linguist mime
     '.js',
-}
+}  # fmt: skip
 # TODO discover more extensions with mimetypes library?
 
 
@@ -96,9 +102,10 @@ audio/
 video/
 '''
 
-handle_later = lambda *args, **kwargs: ()
+handle_later = lambda *_args, **_kwargs: ()
 
-def ignore(*args, **kwargs):
+
+def ignore(*_args, **_kwargs):
     # TODO log (once?)
     yield from ()
 
@@ -115,12 +122,19 @@ TYPE2IDX.update({
     '.vcf' : ignore,
     'message/rfc822': ignore, # ??
 
+    # todo ignore all fonts?
+    'font/woff2': ignore,
+    'font/woff': ignore,
+    'text/x-Algol68': ignore,  # ugh some license file had this?? maybe always index text/ as text?
+    'text/x-bytecode.python': ignore,  # todo ignore all x-bytecode?
+    'text/calendar': ignore,
+
     # TODO not sure what to do about these..
     'application/octet-stream': handle_later,
     'application/zip'         : handle_later,
     'application/x-tar'       : handle_later,
     'application/gzip'        : handle_later,
-})
+})  # fmt: skip
 
 
 # TODO use some existing file for initial gitignore..
@@ -139,5 +153,4 @@ IGNORE = [
     # TODO not sure about these:
     '.gitignore',
     '.babelrc',
-]
-
+]  # fmt: skip

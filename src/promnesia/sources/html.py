@@ -2,19 +2,21 @@
 Extracts links from HTML files
 '''
 
+from __future__ import annotations
+
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Tuple
 
-from ..common import PathIsh, Visit, Loc, Results, file_mtime
+from bs4 import BeautifulSoup, Tag
 
-from bs4 import BeautifulSoup
+from promnesia.common import Loc, PathIsh, Results, Visit, file_mtime
 
-
-# TODO present error summary in the very end; import errors -- makes sense to show 
+# TODO present error summary in the very end; import errors -- makes sense to show
 # TODO on some exceptions, request a fallback to text?
 
 
-Url = Tuple[str, str]
+Url = tuple[str, str]
+
 
 def extract_urls_from_html(s: str) -> Iterator[Url]:
     """
@@ -23,11 +25,13 @@ def extract_urls_from_html(s: str) -> Iterator[Url]:
     """
     soup = BeautifulSoup(s, 'lxml')
     for a in soup.find_all('a'):
+        assert isinstance(a, Tag), a  # make mypy happy
         href = a.attrs.get('href')
         if href is None or ('://' not in href):
             # second condition means relative link
             continue
-        text = a.text
+        assert isinstance(href, str), href  # make mypy happy
+        text: str = a.text
         yield (href, text)
 
 

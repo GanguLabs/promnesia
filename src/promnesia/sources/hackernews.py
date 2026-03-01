@@ -4,11 +4,11 @@ Uses [[https://github.com/karlicoss/HPI][HPI]] dogsheep module to import HackerN
 
 import textwrap
 
-from promnesia.common import Visit, Loc, Results
+from promnesia.common import Loc, Results, Visit
 
 
 def index() -> Results:
-    from . import hpi
+    from . import hpi  # noqa: F401,I001
     from my.hackernews import dogsheep
 
     for item in dogsheep.items():
@@ -21,9 +21,7 @@ def index() -> Results:
             title = item.title
         elif item.text_html:
             title = item.text_html
-            title = textwrap.shorten(
-                    title, width=79, placeholder="…",
-                    break_long_words=True)
+            title = textwrap.shorten(title, width=79, placeholder="…", break_long_words=True)
         # The locator is always the HN story. If the story is a link (as
         # opposed to a text post), we insert a visit such that the link
         # will point back to the corresponding HN story.
@@ -33,8 +31,8 @@ def index() -> Results:
             urls.append(item.url)
         for url in urls:
             yield Visit(
-                    url=url,
-                    dt=item.created,
-                    locator=loc,
-                    context=title,
+                url=url,
+                dt=item.created,
+                locator=loc,
+                context=title,
             )

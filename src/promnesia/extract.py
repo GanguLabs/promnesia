@@ -1,19 +1,21 @@
-from functools import lru_cache
+from __future__ import annotations
+
 import re
-import traceback
-from typing import Set, Iterable, Sequence, Union
+from collections.abc import Iterable, Sequence
+from functools import lru_cache
 
 from .cannon import CanonifyException
 from .common import (
-    logger,
-    DbVisit, Visit,
-    Res,
-    SourceName, Source,
+    DbVisit,
     Filter,
+    Res,
+    Results,
+    Source,
+    SourceName,
     Url,
-    Results, Extractor,
+    Visit,
+    logger,
 )
-
 
 DEFAULT_FILTERS = (
     r'^chrome-\w+://',
@@ -23,17 +25,17 @@ DEFAULT_FILTERS = (
     r'^about:',
     r'^blob:',
     r'^view-source:',
-
     r'^content:',
 )
 
 
-@lru_cache(1) #meh, not sure what would happen under tests?
+# TODO maybe move these to configs?
+@lru_cache(1)  # meh, not sure what would happen under tests?
 def filters() -> Sequence[Filter]:
     from . import config
 
     flt = list(DEFAULT_FILTERS)
-    if config.has(): # meeeh...
+    if config.has():  # meeeh...
         cfg = config.get()
         flt.extend(cfg.FILTERS)
     return tuple(make_filter(f) for f in flt)
@@ -52,7 +54,7 @@ def extract_visits(source: Source, *, src: SourceName) -> Iterable[Res[DbVisit]]
         yield e
         return
 
-    handled: Set[Visit] = set()
+    handled: set[Visit] = set()
     try:
         for p in vit:
             if isinstance(p, Exception):
@@ -64,7 +66,7 @@ def extract_visits(source: Source, *, src: SourceName) -> Iterable[Res[DbVisit]]
                 yield p
                 continue
 
-            if p in handled: # no need to emit duplicates
+            if p in handled:  # no need to emit duplicates
                 continue
             handled.add(p)
 
@@ -73,7 +75,6 @@ def extract_visits(source: Source, *, src: SourceName) -> Iterable[Res[DbVisit]]
         # todo critical error?
         logger.exception(e)
         yield e
-
 
     logger.info('extracting via %s: got %d visits', source.description, len(handled))
 
@@ -93,11 +94,13 @@ def filtered(url: Url) -> bool:
     return any(f(url) for f in filters())
 
 
-def make_filter(thing: Union[str, Filter]) -> Filter:
+def make_filter(thing: str | Filter) -> Filter:
     if isinstance(thing, str):
         rc = re.compile(thing)
+
         def filter_(u: str) -> bool:
             return rc.search(u) is not None
+
         return filter_
-    else: # must be predicate
+    else:  # must be predicate
         return thing

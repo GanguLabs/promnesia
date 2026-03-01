@@ -2,18 +2,30 @@
 Greps out URLs from an arbitrary shell command results.
 """
 
-from datetime import datetime
+from __future__ import annotations
+
 import os
 import re
-from subprocess import run, PIPE
-from typing import Union, Sequence
 import warnings
+from collections.abc import Sequence
+from datetime import datetime
+from subprocess import PIPE, run
 
-from ..common import Visit, Loc, Results, extract_urls, file_mtime, get_system_tz, now_tz, _is_windows, PathIsh
+from promnesia.common import (
+    Loc,
+    PathIsh,
+    Results,
+    Visit,
+    _is_windows,
+    extract_urls,
+    file_mtime,
+    now_tz,
+)
+
 from .plaintext import _has_grep
 
 
-def index(command: Union[str, Sequence[PathIsh]]) -> Results:
+def index(command: str | Sequence[PathIsh]) -> Results:
     cmd: Sequence[PathIsh]
     cmds: str
     if isinstance(command, str):
@@ -21,10 +33,8 @@ def index(command: Union[str, Sequence[PathIsh]]) -> Results:
         warnings.warn("Passing string as a command is very fragile('{command}'). Please use list instead.")
         cmd = command.split(' ')
     else:
-        cmds = ' '.join(map(str, command))
+        cmds = ' '.join(map(str, command))  # ty: ignore[invalid-argument-type]  # see https://github.com/astral-sh/ty/issues/2091
         cmd = command
-
-    tz = get_system_tz()
 
     # ugh... on windows grep does something nasty? e.g:
     # grep --color=never -r -H -n -I -E http 'D:\\a\\promnesia\\promnesia\\tests\\testdata\\custom'
@@ -42,9 +52,9 @@ def index(command: Union[str, Sequence[PathIsh]]) -> Results:
             fname = None
             lineno = None
         else:
-            fname  = m.group(1)
+            fname = m.group(1)
             lineno = int(m.group(2))
-            line   = m.group(3)
+            line = m.group(3)
 
         if fname is not None and needs_windows_grep_patching:
             fname = fname.replace('/', os.sep)
@@ -71,9 +81,9 @@ def index(command: Union[str, Sequence[PathIsh]]) -> Results:
                 context=context,
             )
 
-    r = run(cmd, stdout=PIPE)
+    r = run(cmd, stdout=PIPE, check=False)
     if r.returncode > 0:
-        if not (cmd[0] in {'grep', 'findstr'} and r.returncode == 1): # ugh. grep returns 1 on no matches...
+        if not (cmd[0] in {'grep', 'findstr'} and r.returncode == 1):  # ugh. grep returns 1 on no matches...
             r.check_returncode()
     output = r.stdout
     assert output is not None

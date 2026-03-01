@@ -1,41 +1,75 @@
 '''
 Uses HPI [[https://github.com/karlicoss/HPI/blob/master/doc/MODULES.org#mygoogletakeoutpaths][google.takeout]] module
 '''
-from typing import Iterable, Set, Any
-import warnings
 
-from ..common import Visit, Loc, Results, logger
-from ..compat import removeprefix
+from __future__ import annotations
+
+import warnings
+from collections.abc import Iterable
+from typing import Any, NamedTuple
+
+from promnesia.common import Loc, Results, Visit, logger
+
+
+# incase user is using an old version of google_takeout_parser
+class YoutubeCSVStub(NamedTuple):
+    contentJSON: str
 
 
 def index() -> Results:
-    from . import hpi
+    from . import hpi  # noqa: F401
 
     try:
+        from google_takeout_parser.models import (
+            Activity,
+            ChromeHistory,
+            LikedYoutubeVideo,
+            YoutubeComment,
+        )
+        from google_takeout_parser.parse_csv import (
+            extract_comment_links,
+            reconstruct_comment_content,
+        )
         from my.google.takeout.parser import events
-        from google_takeout_parser.models import Activity, YoutubeComment, LikedYoutubeVideo, ChromeHistory
     except ModuleNotFoundError as ex:
         logger.exception(ex)
         yield ex
 
-        warnings.warn("Please set up my.google.takeout.parser module for better takeout support. Falling back to legacy implementation.")
+        warnings.warn(
+            "Please set up my.google.takeout.parser module for better takeout support. Falling back to legacy implementation."
+        )
 
         from . import takeout_legacy
+
         yield from takeout_legacy.index()
         return
 
-    _seen: Set[str] = {
+    _seen: set[str] = {
         # these are definitely not useful for promnesia
         'Location',
         'PlaceVisit',
         'PlayStoreAppInstall',
     }
+
+    imported_yt_csv_models = False
+    try:
+        from google_takeout_parser.models import CSVYoutubeComment, CSVYoutubeLiveChat
+
+        imported_yt_csv_models = True
+    except ImportError:
+        # warn user to upgrade google_takeout_parser
+        warnings.warn(
+            "Please upgrade google_takeout_parser (`pip install -U google_takeout_parser`) to support the new format for youtube comments"
+        )
+        CSVYoutubeComment = YoutubeCSVStub  # type: ignore[misc,assignment]
+        CSVYoutubeLiveChat = YoutubeCSVStub  # type: ignore[misc,assignment]
+
     def warn_once_if_not_seen(e: Any) -> Iterable[Exception]:
         et_name = type(e).__name__
         if et_name in _seen:
             return
         _seen.add(et_name)
-        yield RuntimeError(f"Unhandled event {repr(type(e))}: {e}")
+        yield RuntimeError(f"Unhandled event {type(e)!r}: {e}")
 
     for e in events():
         if isinstance(e, Exception):
@@ -48,13 +82,13 @@ def index() -> Results:
                 # when you follow something from search the actual url goes after this
                 # e.g. https://www.google.com/url?q=https://en.wikipedia.org/wiki/Clapham
                 # note: also title usually starts with 'Visited ', in such case but perhaps fine to keep it
-                url = removeprefix(url, "https://www.google.com/url?q=")
+                url = url.removeprefix("https://www.google.com/url?q=")
                 title = e.title
 
                 if e.header == 'Chrome':
                     # title contains 'Visited <page title>' in this case
                     context = None
-                    title = removeprefix(title, 'Visited ')
+                    title = title.removeprefix('Visited ')
                 elif e.header in _CLEAR_CONTEXT_FOR_HEADERS:
                     # todo perhaps could add to some sort of metadata?
                     # only useful for debugging really
@@ -70,6 +104,8 @@ def index() -> Results:
                     context = None
                 elif e.products == ['Ads']:
                     # header contains some weird internal ad id in this case
+                    context = None
+                else:
                     context = None
                 # NOTE: at this point seems that context always ends up as None (at least for @karlicoss as of 20230131)
                 # so alternatively could just force it to be None instead of manual dispatching :shrug:
@@ -99,16 +135,40 @@ def index() -> Results:
         elif isinstance(e, LikedYoutubeVideo):
             # TODO not sure if desc makes sense here since it's not user produced data
             # it's just a part of video meta?
-            yield Visit(
-                url=e.link, dt=e.dt, context=e.desc, locator=Loc(title=e.title, href=e.link)
-            )
+            yield Visit(url=e.link, dt=e.dt, context=e.desc, locator=Loc(title=e.title, href=e.link))
         elif isinstance(e, YoutubeComment):
             for url in e.urls:
                 # todo: use url_metadata to improve locator?
                 # or maybe just extract first sentence?
-                yield Visit(
-                    url=url, dt=e.dt, context=e.content, locator=Loc(title=e.content, href=url)
-                )
+                yield Visit(url=url, dt=e.dt, context=e.content, locator=Loc(title=e.content, href=url))
+        elif imported_yt_csv_models and isinstance(e, CSVYoutubeComment):
+            contentJSON = e.contentJSON
+            content = reconstruct_comment_content(contentJSON, format='text')
+            if isinstance(content, Exception):
+                yield content
+                continue
+            links = extract_comment_links(contentJSON)
+            if isinstance(links, Exception):
+                yield links
+                continue
+            context = f"Commented on {e.video_url}"
+            for url in links:
+                yield Visit(url=url, dt=e.dt, context=content, locator=Loc(title=context, href=url))
+            yield Visit(url=e.video_url, dt=e.dt, context=content, locator=Loc(title=context, href=e.video_url))
+        elif imported_yt_csv_models and isinstance(e, CSVYoutubeLiveChat):
+            contentJSON = e.contentJSON
+            content = reconstruct_comment_content(contentJSON, format='text')
+            if isinstance(content, Exception):
+                yield content
+                continue
+            links = extract_comment_links(contentJSON)
+            if isinstance(links, Exception):
+                yield links
+                continue
+            context = f"Commented on livestream {e.video_url}"
+            for url in links:
+                yield Visit(url=url, dt=e.dt, context=content, locator=Loc(title=context, href=url))
+            yield Visit(url=e.video_url, dt=e.dt, context=content, locator=Loc(title=context, href=e.video_url))
         else:
             yield from warn_once_if_not_seen(e)
 
