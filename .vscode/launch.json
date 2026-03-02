@@ -10,9 +10,8 @@
 			"request": "launch",
 			"module": "promnesia",
 			"args": [
-				"serve"
-				// "--port",
-				// "13131",
+				"serve",
+				"--port=13131"
 				// "--config",
 				// "${input:selectConfig}"
 				// "${workspaceFolder}/config.py"
@@ -22,7 +21,12 @@
 			"env": {
 				"PYTHONPATH": "${workspaceFolder}/src"
 			},
-			"justMyCode": false
+			"justMyCode": false,
+			"serverReadyAction": {
+				"action": "openExternally",
+				"pattern": "running on http://.*:(\\d+)",
+				"uriFormat": "http://localhost:%s/docs#/default/search_search_post"
+			}
 		}
 	],
 	"inputs": [
