@@ -213,9 +213,20 @@ def search_common(url: str, where: Where) -> VisitsResponse:
 
 @app.get("/test")
 def read_root():
-    f = open("C:/Users/AnweshGangula/Downloads/promnesia/src/promnesia/read_db.py", "r")
-    lines = f.readlines()
-    return {"Hello": "World" + " - read_db.py has " + str(len(lines)) + " lines"}
+    # __file__ gives the absolute path to this specific script
+    current_file = Path(__file__)
+    
+    # Use context manager (with) to ensure the file is closed correctly (Resource Management)
+    # Explicitly set encoding='utf-8' to avoid the UnicodeDecodeError we saw earlier
+    try:
+        content = current_file.read_text(encoding='utf-8')
+        lines = content.splitlines()
+        
+        return {
+            "Hello World": f"{current_file.name} has {len(lines)} lines"
+        }
+    except Exception as e:
+        return {"error": f"Could not read file: {str(e)}"}
 
 # TODO hmm, seems that the extension is using post for all requests??
 # perhasp should switch to get for most endpoint
