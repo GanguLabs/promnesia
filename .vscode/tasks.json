@@ -2,7 +2,22 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Promnesia: Kill Server",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-Command",
+				"if (Get-NetTCPConnection -LocalPort 13131 -ErrorAction SilentlyContinue) { Stop-Process -Id (Get-NetTCPConnection -LocalPort 13131).OwningProcess -Force -ErrorAction SilentlyContinue }"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "silent",
+				"close": true
+			}
+		},
+		{
 			"label": "Promnesia: Run Index",
+			// "dependsOn": "Promnesia: Kill Server", // Cleans the port BEFORE indexing
 			"type": "shell",
 			"command": "${command:python.interpreterPath}",
 			"args": [
