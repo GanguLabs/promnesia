@@ -1,0 +1,60 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Python: Promnesia Server",
+			"type": "debugpy",
+			"request": "launch",
+			"module": "promnesia",
+			"args": [
+				"serve"
+				// "--port",
+				// "13131",
+				// "--config",
+				// "${input:selectConfig}"
+				// "${workspaceFolder}/config.py"
+			],
+			"console": "integratedTerminal",
+			"cwd": "${workspaceFolder}/src",
+			"env": {
+				"PYTHONPATH": "${workspaceFolder}/src"
+			},
+			"justMyCode": false
+		}
+	],
+	"inputs": [
+		{
+			"id": "selectConfig",
+			"type": "pickString",
+			"description": "Which configuration would you like to use?",
+			"options": [
+				{
+					"label": "Windows AppData Config",
+					"value": "${env:LOCALAPPDATA}/promnesia/config.py"
+				},
+				{
+					"label": "Local repo Config",
+					"value": "${workspaceFolder}/config.py"
+				},
+				{
+					"label": "Dev/Testing Config",
+					"value": "${workspaceFolder}/tests/test_config.py"
+				},
+				{
+					"label": "Enter Custom Path...",
+					"value": "${input:manualConfigPath}"
+				}
+			],
+			"default": "${env:LOCALAPPDATA}/promnesia/config.py"
+		},
+		{
+			"id": "manualConfigPath",
+			"type": "promptString",
+			"description": "Enter path (e.g., C:/my/config.py)",
+			"default": "${env:LOCALAPPDATA}/promnesia/"
+		}
+	]
+}
