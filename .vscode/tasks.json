@@ -4,7 +4,7 @@
 		{
 			"label": "Promnesia: Run Index",
 			"type": "shell",
-			"command": "${workspaceFolder}/.venv/Scripts/python.exe",
+			"command": "${command:python.interpreterPath}",
 			"args": [
 				"-m",
 				"promnesia",
@@ -19,9 +19,15 @@
 			},
 			"group": "build",
 			"presentation": {
+				"echo": true,
 				"reveal": "always",
-				"panel": "dedicated"
-			}
+				"focus": false,
+				"panel": "dedicated",
+				"showReuseMessage": true,
+				"clear": true,
+				"close": false // This is the key: it closes the panel on success
+			},
+			"problemMatcher": []
 		}
 	],
 	"inputs": [
