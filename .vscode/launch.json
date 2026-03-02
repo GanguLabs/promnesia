@@ -5,10 +5,11 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Promnesia: Serve",
+			"name": "Debug Promnesia: Index then Serve",
 			"type": "debugpy",
 			"request": "launch",
 			"module": "promnesia",
+			"preLaunchTask": "Promnesia: Run Index",
 			"args": [
 				"serve",
 				"--port=13131"
@@ -27,29 +28,53 @@
 				"pattern": "running on http://.*:(\\d+)",
 				"uriFormat": "http://localhost:%s/docs#/default/search_search_post"
 			}
-		},
-		{
-			"name": "Promnesia: Index",
-			"type": "debugpy",
-			"request": "launch",
-			"module": "promnesia",
-			"args": [
-				"index"
-				// "--config",
-				// "${input:selectConfig}",
-			],
-			"cwd": "${workspaceFolder}/src",
-			"env": {
-				"PYTHONPATH": "${workspaceFolder}/src"
-			},
-			"console": "integratedTerminal"
 		}
+		// {
+		// 	"name": "Promnesia: Serve",
+		// 	"type": "debugpy",
+		// 	"request": "launch",
+		// 	"module": "promnesia",
+		// 	"args": [
+		// 		"serve",
+		// 		"--port=13131"
+		// 		// "--config",
+		// 		// "${input:selectConfig}"
+		// 		// "${workspaceFolder}/config.py"
+		// 	],
+		// 	"console": "integratedTerminal",
+		// 	"cwd": "${workspaceFolder}/src",
+		// 	"env": {
+		// 		"PYTHONPATH": "${workspaceFolder}/src"
+		// 	},
+		// 	"justMyCode": false,
+		// 	"serverReadyAction": {
+		// 		"action": "openExternally",
+		// 		"pattern": "running on http://.*:(\\d+)",
+		// 		"uriFormat": "http://localhost:%s/docs#/default/search_search_post"
+		// 	}
+		// },
+		// {
+		// 	"name": "Promnesia: Index",
+		// 	"type": "debugpy",
+		// 	"request": "launch",
+		// 	"module": "promnesia",
+		// 	"args": [
+		// 		"index"
+		// 		// "--config",
+		// 		// "${input:selectConfig}",
+		// 	],
+		// 	"cwd": "${workspaceFolder}/src",
+		// 	"env": {
+		// 		"PYTHONPATH": "${workspaceFolder}/src"
+		// 	},
+		// 	"console": "integratedTerminal"
+		// }
 	],
 	"inputs": [
 		{
 			"id": "selectConfig",
 			"type": "pickString",
-			"description": "Which configuration would you like to use?",
+			"description": "Select configuration source:",
 			"options": [
 				{
 					"label": "Windows AppData Config",
@@ -76,11 +101,11 @@
 			"description": "Enter path (e.g., C:\\my\\config.py)",
 			"default": "${env:LOCALAPPDATA}\\promnesia\\"
 		}
-	],
-	"compounds": [
-		{
-			"name": "Index then Serve",
-			"configurations": ["Promnesia: Index", "Promnesia: Serve"]
-		}
 	]
+	// "compounds": [
+	// 	{
+	// 		"name": "Index then Serve",
+	// 		"configurations": ["Promnesia: Index", "Promnesia: Serve"]
+	// 	}
+	// ]
 }

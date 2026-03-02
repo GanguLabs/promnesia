@@ -1,0 +1,42 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Promnesia: Run Index",
+			"type": "shell",
+			"command": "${workspaceFolder}/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"promnesia",
+				"index"
+				// "--config", "${input:selectConfig}",
+			],
+			"options": {
+				"env": {
+					"PYTHONPATH": "${workspaceFolder}/src"
+				},
+				"cwd": "${workspaceFolder}/src"
+			},
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		}
+	],
+	"inputs": [
+		{
+			"id": "selectConfig",
+			"type": "pickString",
+			"description": "Select configuration for Indexing:",
+			"options": [
+				{
+					"label": "User Local Settings",
+					"value": "${env:LOCALAPPDATA}/promnesia/config.py"
+				},
+				{ "label": "Workspace Config", "value": "${workspaceFolder}/config.py" }
+			],
+			"default": "${env:LOCALAPPDATA}/promnesia/config.py"
+		}
+	]
+}
