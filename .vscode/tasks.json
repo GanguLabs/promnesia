@@ -2,6 +2,28 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Promnesia: Watch & Auto-Index",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\watch_promnesia.ps1",
+				"-ConfigPath",
+				"${input:selectConfig}",
+				"-PythonPath",
+				"${workspaceFolder}\\.venv\\Scripts\\python.exe"
+			],
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
 			"label": "Promnesia: Kill Server",
 			"type": "shell",
 			"command": "powershell",
@@ -17,7 +39,7 @@
 		},
 		{
 			"label": "Promnesia: Run Index",
-			// "dependsOn": "Promnesia: Kill Server", // Cleans the port BEFORE indexing
+			"dependsOn": "Promnesia: Kill Server", // Cleans the port BEFORE indexing
 			"type": "shell",
 			"command": "${command:python.interpreterPath}",
 			"args": [
@@ -53,11 +75,11 @@
 			"options": [
 				{
 					"label": "User Local Settings",
-					"value": "${env:LOCALAPPDATA}/promnesia/config.py"
+					"value": "${env:LOCALAPPDATA}\\promnesia\\promnesia\\config.py"
 				},
 				{ "label": "Workspace Config", "value": "${workspaceFolder}/config.py" }
 			],
-			"default": "${env:LOCALAPPDATA}/promnesia/config.py"
+			"default": "${env:LOCALAPPDATA}\\promnesia\\promnesia\\config.py"
 		}
 	]
 }
