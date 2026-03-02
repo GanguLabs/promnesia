@@ -65,6 +65,15 @@
 				"close": false // This is the key: it closes the panel on success
 			},
 			"problemMatcher": []
+		},
+		{
+			"label": "Promnesia: Full Dev Environment",
+			"dependsOrder": "parallel",
+			"dependsOn": ["Promnesia: Watch & Auto-Index", "Promnesia: Run Index"],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
 		}
 	],
 	"inputs": [
