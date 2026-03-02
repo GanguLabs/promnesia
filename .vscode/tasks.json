@@ -39,7 +39,7 @@
 		},
 		{
 			"label": "Promnesia: Run Index",
-			"dependsOn": "Promnesia: Kill Server", // Cleans the port BEFORE indexing
+			// "dependsOn": "Promnesia: Kill Server", // Cleans the port BEFORE indexing
 			"type": "shell",
 			"command": "${workspaceFolder}/.venv/Scripts/python.exe",
 			"args": [
